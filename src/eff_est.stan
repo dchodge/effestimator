@@ -60,6 +60,9 @@ transformed parameters {
 model {
     // exponential of inci_gp to ensure positivity 
     n_pla ~ poisson(persons_pla .* exp(inci_gp));
+    n_pla ~ poisson(persons_pla .* exp(inci_gp));
+    n_pla ~ poisson(persons_pla .* exp(inci_gp));
+
     n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - exp_wane(wane_a_exp, wane_b_exp, t_vac) ) );
     n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er2, wane_b_er2, t_vac, 2) ) );
     n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er3, wane_b_er3, t_vac, 3) ) );
