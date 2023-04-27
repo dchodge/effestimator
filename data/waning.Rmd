@@ -1,0 +1,585 @@
+```{r "Build data"}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+library(ggplot2)
+library(epitools)
+library(stats4)
+library(bbmle)
+library(matrixStats)
+library(reshape2)
+library(BayesianTools)
+library(styler)
+#style_file("waning.Rmd", transformers = tidyverse_style(strict = T,
+#  math_token_spacing = specify_math_token_spacing(zero = c("'^'", "'*'", "'/'"), one = c("'+'", "'-'"))))
+
+# Read in Kaplan-Meier data
+# gest_age <- "29-35"
+# gest_age <- "35+"
+gest_age <- "pooled"
+data_pla <- read.csv(paste("../Data/Placebo_", gest_age, ".csv", sep = ""), header = F)
+var <- c("t", "Proportion_Free")
+names(data_pla) <- var
+data_nir <- read.csv(paste("../Data/Nirsevimab_", gest_age, ".csv", sep = ""), header = F)
+names(data_nir) <- var
+
+#### Assumed event data (to be checked below) ####
+if (gest_age == "pooled") {
+  events_pla <- data.frame(Type = c("C", "I", "I", "I", "I", "I", "I", "I", "C",
+    "I", "I", "C", "I", "I", "I", "I", "I", "I", "I",
+    "I", "I", "I", "I", "I", "I", "I", "I", "C", "I", "I", "I",
+    "I", "I", "I", "C", "I", "I",
+    "I", "I", "I", "C", "C", "C", "C"),
+    t = c(1, 7, 8, 15, 17, 19, 22, 23, 26,
+          30, 33, 33, 37, 48, 49, 50, 51, 53, 57,
+          63, 64, 66, 69, 73, 75, 77, 78, 79, 80, 82, 84,
+          91, 92, 111, 113, 115, 117,
+          121, 122, 132, 144, 149, 150, 151),
+  n = c(5, 1, 1, 1, 1, 2, 1, 1, 1,
+    1, 2, 1, 3, 4, 1, 1, 1, 1, 1,
+    2, 2, 1, 1, 1, 3, 1, 2, 1, 1, 3, 1,
+    1, 2, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 0, 724))
+  events_nir <- data.frame(Type = c("C", "I", "I", "I",
+    "C", "C", "C", "I", "I", "I",
+    "C", "C", "C", "I", "C", "C", "I", "C",
+    "I", "I", "C", "C", "I", "I", "I", "I", "I",
+    "C", "I", "C", "I", "I", "C", "C", "C", "C"),
+    t = c(1, 7, 21, 28,
+          35, 38, 45, 51, 54, 57,
+          68, 71, 73, 74, 74, 75, 82, 85,
+          92, 93, 97, 99, 102, 103, 108, 109, 112, 123, 127, 127,
+          136, 138, 140, 143, 146, 151),
+  n = c(8, 1, 1, 1,
+    1, 1, 1, 2, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 2, 2, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1519))
+}
+#### end ####
+
+# Work out events data from KM estimator
+check_events <- function(events, KM_est) {
+
+  N_events <- nrow(events)
+  events$at_risk_before <- sum(events$n) - cumsum(append(0, events$n[1:(N_events - 1)]))
+
+  t_data <- c()
+  n_data <- c()
+  j <- 0 # Index for KM_data, where "I" events take up two rows
+
+  for (i in seq(1, N_events, 1)) {
+
+    j <- j + 1
+
+    if (events$Type[i] == "C") {
+      t_data[i] <- KM_est[j, 1]
+      n_data[i] <- NA
+    } else if (events$Type[i] == "I") {
+      t_data[i] <- mean(KM_est[j:(j + 1), 1])
+      n_data[i] <- -diff(KM_est[j:(j + 1), 2])*events$at_risk_before[i]
+      j <- j + 1
+    }
+  }
+
+  check <- data.frame(t_data = t_data, t = events$t, dt = events$t - t_data, 
+                      n_data = n_data, n = events$n, dn = events$n - n_data)
+
+  return(check)
+}
+
+check_pla <- check_events(events_pla, data_pla)
+check_nir <- check_events(events_nir, data_nir)
+
+# Work out KM estimator from events data
+KM_est <- function(events) {
+  
+  N_events <- nrow(events)
+  events$at_risk_before <- sum(events$n) - cumsum(append(0, events$n[1:(N_events - 1)]))
+   
+  KM_est <- data.frame(t = 0, Proportion_Free = 1)
+  j <- 0
+  
+  for (i in seq(1, N_events, 1)) {
+    
+    time <- events$t[i]
+    j <- j + 1
+    
+    if (events$Type[i] == "C") {
+      KM_est <- rbind(KM_est, c(time, KM_est[j, 2]))
+    } else if (events$Type[i] == "I") {
+      KM_est <- rbind(KM_est, c(time, KM_est[j, 2]))
+      KM_est <- rbind(KM_est, c(time, KM_est[j, 2]*(1 - events$n[i]/events$at_risk_before[i])))
+      j <- j + 1
+    }
+  }
+  
+  events$pt_elapsed <- cumsum(events$at_risk_before*diff(append(0, events$t)))
+  
+  data <- list(Events = events, KM_estimator = KM_est)
+  
+  return(data)
+}
+
+data_pla_clean <- KM_est(events_pla)
+data_nir_clean <- KM_est(events_nir)
+
+ggplot() +
+  #geom_line(data = data_pla, aes(x = t, y = Proportion_Free), color = "blue") +
+  geom_line(data = data_pla_clean$KM_estimator, aes(x = t, y = Proportion_Free), color = "blue") +
+  #geom_line(data = data_nir, aes(x = t, y = Proportion_Free), color = "red") +
+  geom_line(data = data_nir_clean$KM_estimator, aes(x = t, y = Proportion_Free), color = "red") +
+  xlim(0, 151) +
+  ylim(0.9, 1.001)
+
+```
+```{r "Aggregate data"}
+
+events_agg <- function(data, ts) {
+  
+  n_ts <- length(ts)
+  
+  events <- data$Events
+  KM_est <- data$KM_estimator
+
+  time_between_events <- diff(append(0, events$t))
+  time_between_events[1] <- time_between_events[1] + 1
+  events$pt_elapsed <- cumsum(events$at_risk_before*time_between_events) # up to and including day of event itself
+  
+  at_risk_f <- events$at_risk_before[1]
+  
+  output <- data.frame()
+  
+  for (i in seq(1, n_ts - 1, 1)) {
+    
+    t_min <- ts[i]
+    t_max <- ts[i + 1]
+    
+    data <- subset(events, events$t >= t_min & events$t < t_max)
+
+    if (nrow(data) == 0) {
+
+      pt <- at_risk_f*(t_max - t_min)
+      n <- 0
+      
+    } else {
+      
+      pt_elapsed_i_before_event <- head(data, 1)$pt_elapsed - head(data, 1)$at_risk_before # Second term = person-time on day of event
+      at_risk_i <- head(data, 1)$at_risk_before
+      t_before <- head(data, 1)$t - t_min
+      pt_start <- pt_elapsed_i_before_event - at_risk_i*t_before
+      
+      pt_elapsed_f_after_event <- tail(data, 1)$pt_elapsed
+      at_risk_f <- tail(data, 1)$at_risk_before - tail(data, 1)$n
+      t_after <- t_max - 1 - tail(data, 1)$t
+      pt_end <- pt_elapsed_f_after_event + at_risk_f*t_after
+      
+      pt <- pt_end - pt_start
+    
+      n <-  sum(data[which(data$Type == "I"), ]$n)
+    
+    }
+    
+    output <- rbind(output, c(paste("[", t_min, ", ", t_max, ")", sep = ""),
+                              (t_min + t_max)/2, pt, n))
+  }
+  
+  names(output) <- c("t_interval", "t", "person_time", "n")
+  
+  delta <- rep(1e-9, n_ts)
+  delta[1] <- 0
+  proportion_free <- approx(KM_est$t, KM_est$Proportion_Free, ts - delta, ties = "ordered")$y
+  output$proportion_inf <- -diff(proportion_free)/proportion_free[1:(n_ts - 1)]
+  
+  # Why is this necessary?
+  output$t <- as.numeric(output$t)
+  output$person_time <- as.numeric(output$person_time)
+  output$n <- as.numeric(output$n)
+  output$proportion_inf <- as.numeric(output$proportion_inf)
+  
+  return(output)
+}
+
+dt <- 1
+ts <- seq(0, 150, dt)
+agg_pla <- events_agg(data_pla_clean, ts)
+agg_nir <- events_agg(data_nir_clean, ts)
+
+```
+```{r "Bayesian inference"}
+
+# Base attack rate: constant, normal (2)
+# Efficacy: constant, linear, exponential (3)
+# Combined: cc, cl, ce, nc, nl, ne (6)
+models <- list("c_" = list(name = "c_",
+                           par_0 = 2e-4,
+                           attack_rate = function(par, t) {return(par)},
+                           lower = 0,
+                           upper = 1,
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*par[1], log = T)))}),
+               "n_" = list(name = "n_",
+                           par_0 = c(2e-4, 7e-4, 60, 4e-2),
+                           attack_rate = function(par, t) {return(par[, 1] + par[, 2]*exp(-(par[, 4]^2)*(t - par[, 3])^2/2))},
+                           lower = c(0, 0, 0, 0),
+                           upper = c(1, 1, 150, 0.1),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*
+                                                                 (par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/(2))), log = T)))}),
+               "cc" = list(name = "cc",
+                           par_0 = c(2e-4, 0.8),
+                           attack_rate = function(par, t) {return(par[, 1])},
+                           waning = function(par, t) {return(par[, 2])},
+                           lower = c(0, 0),
+                           upper = c(1, 1),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*par[1], log = T), 
+                                                                  dpois(agg_nir$n, agg_nir$person_time*par[1]*(1 - par[2]), log = T)))}),
+               "cl" = list(name = "cl",
+                           par_0 = c(5e-4, 0.05, 0.01),
+                           attack_rate = function(par, t) {return(par[, 1])},
+                           waning = function(par, t) {return(1 - (par[, 2] + par[, 3]*t))},
+                           lower = c(0, 0, 0),
+                           upper = c(1, 1, 1/150),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*par[1], log = T), 
+                                                                  dpois(agg_nir$n, agg_nir$person_time*par[1]*(par[2] + par[3]*agg_nir$t), log = T)))}),
+               "ce" = list(name = "ce",
+                           par_0 = c(5e-4, -0.95, -1/300),
+                           attack_rate = function(par, t) {return(par[, 1])},
+                           waning = function(par, t) {return(1 - (1 + par[, 2]*exp(par[, 3]*t)))},
+                           lower = c(0, -1, -1),
+                           upper = c(1, 0, 0),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*par[1], log = T), 
+                                                                      dpois(agg_nir$n, agg_nir$person_time*par[1]*(1 + par[2]*exp(par[3]*agg_nir$t)), log = T)))}),
+               "nc" = list(name = "nc",
+                           par_0 = c(2e-4, 7e-4, 60, 4e-2, 0.8),
+                           attack_rate = function(par, t) {return(par[, 1] + par[, 2]*exp(-(par[, 4]^2)*(t - par[, 3])^2/2))},
+                           waning = function(par, t) {return(par[, 5])},
+                           lower = c(0, 0, 0, 0, 0),
+                           upper = c(1, 1, 150, 0.1, 1),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2)), log = T),
+                                                                      dpois(agg_nir$n, agg_nir$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2))*(1 - par[5]), log = T)))}),
+               "nl" = list(name = "nl",
+                           par_0 = c(2e-4, 7e-4, 60, 4e-2, 0.05, 0.01),
+                           attack_rate = function(par, t) {return(par[, 1] + par[, 2]*exp(-(par[, 4]^2)*(t - par[, 3])^2/2))},
+                           waning = function(par, t) {return(1 - (par[, 5] + par[, 6]*t))},
+                           lower = c(0, 0, 0, 0, 0, 0),
+                           upper = c(1, 1, 150, 0.1, 1, 1/150),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2)), log = T),
+                                                                      dpois(agg_nir$n, agg_nir$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2))*(par[5] + par[6]*agg_nir$t), log = T)))}),
+               "ne" = list(name = "ne",
+                           par_0 = c(2e-4, 7e-4, 60, 4e-2, -0.95, -1/300),
+                           attack_rate = function(par, t) {return(par[, 1] + par[, 2]*exp(-(par[, 4]^2)*(t - par[, 3])^2/2))},
+                           waning = function(par, t) {return(1 - (1 + par[, 5]*exp(par[, 6]*t)))},
+                           lower = c(0, 0, 0, 0, -1, -1),
+                           upper = c(1, 1, 150, 0.1, 0, 0),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2)), log = T),
+                                                                      dpois(agg_nir$n, agg_nir$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2))*(1 + par[5]*exp(par[6]*agg_nir$t)), log = T)))}),
+               "ne2" = list(name = "ne2",
+                            par_0 = c(2e-4, 7e-4, 60, 4e-2, -1/300),
+                           attack_rate = function(par, t) {return(par[, 1] + par[, 2]*exp(-(par[, 4]^2)*(t - par[, 3])^2/2))},
+                           waning = function(par, t) {return(1 - (1 - exp(par[, 5]*t)))},
+                           lower = c(0, 0, 0, 0, -1),
+                           upper = c(1, 1, 150, 0.1, 0),
+                           log_likelihood = function(par) {return(sum(dpois(agg_pla$n, agg_pla$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2)), log = T),
+                                                                      dpois(agg_nir$n, agg_nir$person_time*(par[1] + par[2]*exp(-(par[4]^2)*(agg_pla$t - par[3])^2/2))*(1 - exp(par[5]*agg_nir$t)), log = T)))}))
+
+log_prior <- function(par, lower, upper) {
+  
+  return(sum(dunif(par, lower, upper, log = T)))
+  
+}
+
+acceptance_ratio <- function(par, par_new, model) {
+  
+  if (log_prior(par_new, model$lower, model$upper) == -Inf || model$log_likelihood(par_new) == -Inf) {
+    A <- 0
+  } else {
+    A <- exp(model$log_likelihood(par_new) - model$log_likelihood(par) +
+               log_prior(par_new, model$lower, model$upper) - log_prior(par, model$lower, model$upper))
+  }
+  return(A)
+}
+
+# Parameters
+n_samples <- 1e6
+burn_in <- 1e3
+lag <- 1e3
+models_to_run <- 1:9
+
+# Metropolis algorithm
+for (k in models_to_run) {
+  
+  print(k)
+  
+  results <- data.frame()
+  par_0 <- models[[k]]$par_0
+  par <- par_0
+  
+  for (i in seq(0, n_samples, 1)) {
+    par_new <- rnorm(length(par), par, abs(par_0/5))
+    
+    A <- acceptance_ratio(par, par_new, models[[k]])
+    
+    r <- runif(1, 0, 1)
+    
+    if (r <= A) {
+      par <- par_new
+    }
+    
+    if (i > burn_in & i %% lag == 0) {
+      results <- rbind(results, c(i, par))
+    }
+  }
+  
+  names(results) <- c("iteration", paste("par_", 1:length(par_0), sep = ""))
+  models[[k]]$results <- results
+}
+```
+```{r "Check against BayesianTools"}
+
+# Parameters
+n_samplesBT <- 1.3e5
+burn_inBT <- 1e2
+lagBT <- 1e2
+models_to_run_BT <- models_to_run
+
+for (k in models_to_run_BT) {
+  
+  print(k)
+  
+  lower <- models[[k]]$lower
+  upper <- models[[k]]$upper
+  
+  ll <- models[[k]]$log_likelihood
+  BS <- createBayesianSetup(ll, lower = lower, upper = upper)
+  settings <- list(iterations = n_samplesBT, burnin = burn_inBT, thin = lagBT, message = F)
+  
+  #out <- runMCMC(BS, sampler = "Metropolis", settings = settings)
+  #res <- as.data.frame(out$chain)
+  
+  out <- runMCMC(BS, settings = settings)
+  r <- nrow(out$chain[[1]])
+  start <- 100
+  res <- as.data.frame(rbind(out$chain[[1]][start:r, ], out$chain[[2]][start:r, ], out$chain[[3]][start:r, ]))
+  
+  res$iteration <- 1:nrow(res)
+  res <- res[, c(ncol(res), 1:length(lower))]
+  names(res) <- c("iteration", paste("par_", 1:length(lower), sep = ""))
+  models[[k]]$resultsBT <- res
+}
+
+```
+```{r "Analysis of parameters"}
+
+for (k in models_to_run) {
+  
+  results <- models[[k]]$results
+  resultsBT <- models[[k]]$resultsBT
+  resultsBoth <- rbind(results, resultsBT)
+  resultsBoth$iteration <- 1:nrow(resultsBoth)
+  
+  parameters <- data.frame()
+  parametersBT <- data.frame()
+  
+  for (i in seq(2, ncol(results), 1)) {
+    
+    parameters <- rbind(parameters, c(mean(results[, i]), quantile(results[, i], 0.025), median(results[, i]), quantile(results[, i], 0.975)))
+    parametersBT <- rbind(parametersBT, c(mean(resultsBT[, i]), quantile(resultsBT[, i], 0.025), median(results[, i]), quantile(resultsBT[, i], 0.975)))
+   
+  }
+  
+  names(parameters) <- c("mean", "lower_ci", "median", "upper_ci")
+  names(parametersBT) <- names(parameters)
+
+  models[[k]]$parameters <- parameters
+  models[[k]]$parametersBT <- parametersBT
+  
+  resultsBoth <- melt(resultsBoth, id.vars = 'iteration', variable.name = 'series')
+  cut_df <- data.frame(X = c(nrow(results), nrow(results)), Y = c(min(abs(resultsBoth[, 3])), max(abs(resultsBoth[, 3]))))
+  
+  print(ggplot() +
+          theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+          geom_point(data = resultsBoth, aes(x = iteration, y = abs(value), color = series)) +
+          geom_line(data = cut_df, aes(x = X, y = Y), color = "red") +
+          scale_y_continuous(trans = 'log2') +
+          ggtitle(models[[k]]$name))
+}
+
+for (k in models_to_run) {
+  print(models[[k]]$parameters)
+  print(models[[k]]$parametersBT)
+}
+
+```
+```{r "Analysis of fit"}
+
+ts_cont <- seq(0, 150, 1)
+ts <- agg_pla$t
+#ts <- ts_cont
+
+for (k in models_to_run) {
+  
+  model <- models[[k]]
+  results <- model$results
+  
+  attack_rate_pla <- data.frame()
+  
+  for (i in seq(1, length(ts), 1)) {
+    
+    t_pla <- ts[i]
+    par <- results[, 2:ncol(results)]
+    attack_rate_pla <- rbind(attack_rate_pla, c(t_pla, model$attack_rate(par, t_pla)))
+  }
+  
+  names(attack_rate_pla) <- c("t", paste("c", 1:nrow(results), sep = ""))
+  
+  mean_pla <- rowMeans(attack_rate_pla[, 2:ncol(attack_rate_pla)])
+  q25_pla <- c()
+  q975_pla <- c()
+      
+  for (i in seq(1, length(ts), 1)) {
+    
+    data_pla <- as.vector(attack_rate_pla[i, 2:ncol(attack_rate_pla)], mode = "numeric")
+    q25_pla[i] <- quantile(data_pla, 0.025)
+    q975_pla[i] <- quantile(data_pla, 0.975)
+  }
+  
+  attack_rate_pla$mean <- mean_pla
+  attack_rate_pla$lower_CI <- q25_pla
+  attack_rate_pla$upper_CI <- q975_pla
+    
+  models[[k]]$attack_rate_results_pla <- attack_rate_pla
+  
+  n_lines <- 100
+  attack_rate2_pla <- melt(attack_rate_pla[, 1:(n_lines + 1)], id.vars = 't', variable.name = 'series')
+  
+  theme_set(theme_bw())
+  print(ggplot() + 
+          geom_line(data = attack_rate2_pla, aes(x = t, y = value, group = series), alpha = 0.1) +
+          theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+          geom_line(data = attack_rate_pla, aes(x = t, y = mean), color = "black") +
+          geom_line(data = attack_rate_pla, aes(x = t, y = lower_CI), color = "black") +
+          geom_line(data = attack_rate_pla, aes(x = t, y = upper_CI), color = "black") +
+          geom_point(data = agg_pla, aes(x = t, y = n/person_time), color = "red") +
+          labs(x = "Days", y = "Attack rate") +
+          ggtitle(paste("Placebo,", models[[k]]$name)) +
+          xlim(0, 150))
+  
+  if (k > 2) {
+    
+    attack_rate_nir <- data.frame()
+    
+    for (i in seq(1, length(ts), 1)) {
+      
+      t_nir <- ts[i]
+      par <- results[, 2:ncol(results)]
+      attack_rate_nir <- rbind(attack_rate_nir, c(t_nir, model$attack_rate(par, t_nir)*(1 - model$waning(par, t_nir))))
+    }
+    
+    names(attack_rate_nir) <- c("t", paste("c", 1:nrow(results), sep = ""))
+    
+    mean_nir <- rowMeans(attack_rate_nir[, 2:ncol(attack_rate_nir)])
+    q25_nir <- c()
+    q975_nir <- c()
+    
+    for (i in seq(1, length(ts), 1)) {
+      
+      data_nir <- as.vector(attack_rate_nir[i, 2:ncol(attack_rate_nir)], mode = "numeric")
+      q25_nir[i] <- quantile(data_nir, 0.025)
+      q975_nir[i] <- quantile(data_nir, 0.975)
+    }
+    
+    attack_rate_nir$mean <- mean_nir
+    attack_rate_nir$lower_CI <- q25_nir
+    attack_rate_nir$upper_CI <- q975_nir
+    models[[k]]$attack_rate_results_nir <- attack_rate_nir
+    
+    n_lines <- 100
+    attack_rate2_nir <- melt(attack_rate_nir[, 1:(n_lines + 1)], id.vars = 't', variable.name = 'series')
+    
+    print(ggplot() +
+            geom_line(data = attack_rate2_nir, aes(x = t, y = value, group = series), alpha = 0.1) +
+            theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+            geom_line(data = attack_rate_nir, aes(x = t, y = mean), color = "black") +
+            geom_line(data = attack_rate_nir, aes(x = t, y = lower_CI), color = "black") +
+            geom_line(data = attack_rate_nir, aes(x = t, y = upper_CI), color = "black") +
+            geom_point(data = agg_nir, aes(x = t, y = n / person_time), color = "blue") +
+            labs(x = "Days", y = "Attack rate") +
+            ggtitle(paste("Nirsevimab,", models[[k]]$name)) +
+            xlim(0, 150))
+  }
+}
+
+```
+```{r "Analysis of efficacy"}
+
+ts_cont <- seq(0, 150, 1)
+ts <- agg_pla$t
+#ts <- ts_cont
+
+for (k in models_to_run[models_to_run != 1 & models_to_run != 2]) {
+  
+  model <- models[[k]]
+  results <- model$results
+  
+  efficacy <- data.frame()
+  
+  for (i in seq(1, length(ts), 1)) {
+    
+    t <- ts[i]
+    efficacy <- rbind(efficacy, c(t, model$waning(results[, 2:ncol(results)], t)))
+  }
+  
+  names(efficacy) <- c("t", paste("c", 1:nrow(results), sep = ""))
+  
+  mean <- rowMeans(efficacy[, 2:ncol(efficacy)])
+  q25 <- c()
+  q975 <- c()
+  for (i in seq(1, length(ts), 1)) {
+    
+    data <- as.vector(efficacy[i, 2:ncol(efficacy)], mode = "numeric")
+    q25[i] <- quantile(data, 0.025)
+    q975[i] <- quantile(data, 0.975)
+  }
+  efficacy$mean <- mean
+  efficacy$lower_CI <- q25
+  efficacy$upper_CI <- q975
+  
+  models[[k]]$efficacy_results <- efficacy
+  
+  n_lines <- 100
+  efficacy2 <- melt(efficacy[, 1:(n_lines + 1)], id.vars = 't', variable.name = 'series')
+  
+  theme_set(theme_bw())
+  print(ggplot() + 
+          geom_line(data = efficacy2, aes(x = t, y = value, group = series), alpha = 0.1) +
+          theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +
+          geom_line(data = efficacy, aes(x = t, y = mean), color = "black") +
+          geom_line(data = efficacy, aes(x = t, y = lower_CI), color = "black") +
+          geom_line(data = efficacy, aes(x = t, y = upper_CI), color = "black") +
+          labs(x = "Days", y = "Efficacy") +
+          ggtitle(paste("Efficacy,", models[[k]]$name)) +
+          xlim(0, ts_cont[length(ts_cont)]) +
+          ylim(0.3, 1))
+}
+
+```
+```{r "Model comparison"}
+
+comparison <- data.frame(t = ts)
+name <- c("t")
+models_to_run <- models_to_run[models_to_run != 1 & models_to_run != 2]
+
+for (i in 1:length(models_to_run)) {
+  
+  k <- models_to_run[i]
+  comparison[, i + 1] <- models[[k]]$efficacy_results$mean
+  name[i + 1] <- models[[k]]$name
+}
+
+names(comparison) <- name
+
+comparison2 <- melt(comparison[, 1:(length(models_to_run) + 1)], id.vars = 't', variable.name = 'model')
+
+print(ggplot() + 
+        geom_line(data = comparison2, aes(x = t, y = value, color = model)) +
+        labs(x = "Days", y = "Efficacy"))
+
+```

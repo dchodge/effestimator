@@ -1,0 +1,110 @@
+# Load libraries
+
+```{r}
+
+library(cmdstanr)
+library(tidyverse)
+library(posterior)
+library(tidybayes)
+library(patchwork)
+library(here)
+
+source("R/utils.R")
+
+```
+
+# Load data and find lower bounds for stan model
+
+```{r}
+
+source("R/get_times.R")
+
+# Finding the optimal value for the shape parameter of the exponential distribution
+expfunc <- function(x) (pexp(365, x) - 0.95) ^ 2
+erl2func <- function(x, k) ((1 - pgamma(365, 2, x)) - 0.05) ^ 2;
+erl3func <- function(x, k) ((1 - pgamma(365, 3, x)) - 0.05) ^ 2;
+
+# Find the lower bounds such that non of the distributions have more than 5% of the probability mass after 365 days
+lower_bound_wane_exp <- optim(c(0.01), lower = 0.0001, upper = 0.1, expfunc, method = "Brent")$par
+lower_bound_wane_erl2 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl2func, method = "Brent")$par
+lower_bound_wane_erl3 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl3func, method = "Brent")$par
+
+lower_bounds_95_loss <- c(lower_bound_wane_exp, lower_bound_wane_erl2, lower_bound_wane_erl3)
+lower_bounds_no_boundary <- c(0, 0, 0)
+
+data_nmab <- get_nmab_data()
+data_nmab$placebo <- data_nmab$placebo %>%
+    mutate(week = rep(1:22, each = 7)[1:150]  ) %>% 
+    group_by(week) %>%
+    summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
+    mutate(tp = week)
+
+data_nmab$vaccine <- data_nmab$vaccine %>%
+    mutate(week = rep(1:22, each = 7)[1:150]  ) %>% 
+    group_by(week) %>%
+    summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
+    mutate(tp = week)
+data_matvac <- get_matvac_data()
+data_oa_papi <- get_oa_papi_data()
+data_oa_walsh <- get_oa_walsh_data()
+
+
+```
+
+
+```{r}
+
+source("R/model.R")
+
+fitted_functions(data_nmab, "nmab_bounded", lower_bounds_95_loss)
+fitted_functions(data_matvac, "mat_bounded", lower_bounds_95_loss)
+fitted_functions(data_oa_papi, "oa_papi_bounded", lower_bounds_95_loss)
+fitted_functions(data_oa_walsh, "oa_walsh_bounded", lower_bounds_95_loss)
+
+fitted_functions(data_nmab, "nmab_nobound", lower_bounds_no_boundary)
+fitted_functions(data_matvac, "mat_nobound", lower_bounds_no_boundary)
+fitted_functions(data_oa_papi, "oa_papi_nobound", lower_bounds_no_boundary)
+fitted_functions(data_oa_walsh, "oa_walsh_nobound", lower_bounds_no_boundary)
+
+```
+
+## Create the comprison plots
+
+```{r}
+
+source("R/plots.R")
+
+data_eff_mat <- data.frame(
+        days = c(90, 120, 150, 180),
+        mean = c(57.1, 56.8, 52.5, 51.3) / 100,
+        lb_95 = c(14.7, 31.2, 28.7, 29.4) / 100,
+        ub_95 = c(79.8, 73.5, 68.9, 66.8) / 100,
+        type = "Observed efficacy"
+    )
+
+plot_outputs(data_eff_mat, "mat_nobound")
+plot_outputs(data_eff_mat, "mat_bounded")
+
+data_eff_nmab <- data.frame(
+        days = c(150),
+        mean = c(74.5) / 100,
+        lb_95 = c(49.6) / 100,
+        ub_95 = c(87.1) / 100,
+        type = "Observed efficacy"
+    )
+
+plot_outputs(data_eff_nmab, "nmab_nobound")
+plot_outputs(data_eff_nmab, "nmab_bounded")
+
+data_eff_lav <- data.frame(
+        days = c(180),
+        mean = c(66.7) / 100,
+        lb_95 = c(28.8) / 100,
+        ub_95 = c(85.8) / 100,
+        type = "Observed efficacy"
+    )
+
+plot_outputs(data_eff_lav, "oa_papi_nobound")
+plot_outputs(data_eff_lav, "oa_papi_bounded")
+
+```
