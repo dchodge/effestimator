@@ -130,3 +130,14 @@ get_mean_ci <- function(x) {
         ub_95 = quantile(x, 0.975)
     )
 }
+
+
+data.frame(
+  time = 0:150,
+  `Exponential waning` = exp(-(0:150) * 1/120),
+  `Erlang-2 waning` = (1 - pgamma(0:150, 2, 1/60)),
+  `Erlang-8 waning` = (1 - pgamma(0:150, 8, 1/15))
+) %>% pivot_longer(!time, values_to = "survival", names_to = "distribution") %>%
+  ggplot() + 
+    geom_line(aes(time, survival, color = distribution), size = 3) + theme_bw() + 
+    labs(x = "Days post vaccination", y = "Proportion of vaccinees still protected", color = "Distribution")

@@ -32,13 +32,13 @@ transformed data {
 }
 parameters{
     real<lower = 0, upper = 1> wane_a_exp; // wane a rate for exponential waning
-    real<lower = lower_bounds[1], upper = 0.1> wane_b_exp; // wane b rate for exponential waning
+    real<lower = 0, upper = lower_bounds[1]> wane_b_exp; // wane b rate for exponential waning
  
     real<lower = 0, upper = 1> wane_a_er2; // wane a rate for erlang-2 waning
-    real<lower = lower_bounds[2], upper = 0.1> wane_b_er2; // wane b rate for erlang-2 waning
+    real<lower = 0, upper = lower_bounds[2]> wane_b_er2; // wane b rate for erlang-2 waning
 
     real<lower = 0, upper = 1> wane_a_er3; // wane a rate for erlang-3 waning
-    real<lower = lower_bounds[3], upper = 0.1> wane_b_er3; // wane b rate for erlang-3 waning
+    real<lower = 0, upper = lower_bounds[3]> wane_b_er3; // wane b rate for erlang-3 waning
 
     // add in gaussian processes to model the incidence over time
     real<lower = 0> alpha; // step size
@@ -63,9 +63,9 @@ model {
     n_pla ~ poisson(persons_pla .* exp(inci_gp));
     n_pla ~ poisson(persons_pla .* exp(inci_gp));
 
-    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - exp_wane(wane_a_exp, wane_b_exp, t_vac) ) );
-    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er2, wane_b_er2, t_vac, 2) ) );
-    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er3, wane_b_er3, t_vac, 3) ) );
+    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - exp_wane(wane_a_exp, 1.0/wane_b_exp, t_vac) ) );
+    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er2, 1.0/wane_b_er2, t_vac, 2) ) );
+    n_vac ~ poisson(persons_vac .* exp(inci_gp) .* (1 - erlangk_wane(wane_a_er3, 1.0/wane_b_er3, t_vac, 3) ) );
 
     // GP priors 
     rho ~ inv_gamma(5, 5);
@@ -74,11 +74,11 @@ model {
 
     // waning priors
     wane_a_exp ~ uniform(0, 1);
-    wane_b_exp ~ uniform(lower_bounds[1], 0.1);
+    wane_b_exp ~ uniform(0, lower_bounds[1]);
     wane_a_er2 ~ uniform(0, 1);
-    wane_b_er2 ~ uniform(lower_bounds[2], 0.1);
+    wane_b_er2 ~ uniform(0, lower_bounds[2]);
     wane_a_er3 ~ uniform(0, 1);
-    wane_b_er3 ~ uniform(lower_bounds[3], 0.1);
+    wane_b_er3 ~ uniform(0, lower_bounds[3]);
 }
 generated quantities {
     // this section just gives useful outputs
@@ -93,9 +93,9 @@ generated quantities {
 
     vector[730] time_points = linspaced_vector(730, 0, 730 - 1);
     // Waning efficacy over 730 days
-    waning_exp = exp_wane(wane_a_exp, wane_b_exp, time_points);
-    waning_er2 = erlangk_wane(wane_a_er2, wane_b_er2, time_points, 2);
-    waning_er3 = erlangk_wane(wane_a_er3, wane_b_er3, time_points, 3);
+    waning_exp = exp_wane(wane_a_exp, 1.0/wane_b_exp, time_points);
+    waning_er2 = erlangk_wane(wane_a_er2, 1.0/wane_b_er2, time_points, 2);
+    waning_er3 = erlangk_wane(wane_a_er3, 1.0/wane_b_er3, time_points, 3);
 
     // Waning efficacy at time points in data
     vector[N_pla] waning_exp_inc;
@@ -103,9 +103,9 @@ generated quantities {
     vector[N_pla] waning_er3_inc;
 
     vector[N_pla] time_p;
-    waning_exp_inc = exp_wane(wane_a_exp, wane_b_exp, t_vac);
-    waning_er2_inc = erlangk_wane(wane_a_er2, wane_b_er2, t_vac, 2);
-    waning_er3_inc = erlangk_wane(wane_a_er3, wane_b_er3, t_vac, 3);
+    waning_exp_inc = exp_wane(wane_a_exp, 1.0/wane_b_exp, t_vac);
+    waning_er2_inc = erlangk_wane(wane_a_er2, 1.0/wane_b_er2, t_vac, 2);
+    waning_er3_inc = erlangk_wane(wane_a_er3, 1.0/wane_b_er3, t_vac, 3);
 
     // Estimated incidence at time points in data, for comparison with data
     for(i in 1:N_pla) {

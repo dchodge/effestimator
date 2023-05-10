@@ -29,18 +29,18 @@ lower_bound_wane_exp <- optim(c(0.01), lower = 0.0001, upper = 0.1, expfunc, met
 lower_bound_wane_erl2 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl2func, method = "Brent")$par
 lower_bound_wane_erl3 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl3func, method = "Brent")$par
 
-lower_bounds_95_loss <- c(lower_bound_wane_exp, lower_bound_wane_erl2, lower_bound_wane_erl3)
-lower_bounds_no_boundary <- c(0, 0, 0)
+lower_bounds_95_loss <- 1 / c(lower_bound_wane_exp, lower_bound_wane_erl2, lower_bound_wane_erl3)
+lower_bounds_no_boundary <- c(365, 180, 120)
 
 data_nmab <- get_nmab_data()
 data_nmab$placebo <- data_nmab$placebo %>%
-    mutate(week = rep(1:22, each = 7)[1:150]  ) %>% 
+    mutate(week = rep(1:22, each = 7)[1:150]) %>%
     group_by(week) %>%
     summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
     mutate(tp = week)
 
 data_nmab$vaccine <- data_nmab$vaccine %>%
-    mutate(week = rep(1:22, each = 7)[1:150]  ) %>% 
+    mutate(week = rep(1:22, each = 7)[1:150]) %>%
     group_by(week) %>%
     summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
     mutate(tp = week)
@@ -82,16 +82,18 @@ data_eff_mat <- data.frame(
         type = "Observed efficacy"
     )
 
+
 plot_outputs(data_eff_mat, "mat_nobound")
 plot_outputs(data_eff_mat, "mat_bounded")
 
 data_eff_nmab <- data.frame(
         days = c(150),
-        mean = c(74.5) / 100,
-        lb_95 = c(49.6) / 100,
+        mean = c(79.5) / 100,
+        lb_95 = c(65.9) / 100,
         ub_95 = c(87.1) / 100,
         type = "Observed efficacy"
     )
+
 
 plot_outputs(data_eff_nmab, "nmab_nobound")
 plot_outputs(data_eff_nmab, "nmab_bounded")
@@ -106,5 +108,71 @@ data_eff_lav <- data.frame(
 
 plot_outputs(data_eff_lav, "oa_papi_nobound")
 plot_outputs(data_eff_lav, "oa_papi_bounded")
+
+
+
+
+
+
+
+```
+
+```{r}
+
+# get point estimates for the efficacy
+modelname <- "mat_nobound"
+day_no <- 365
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+efficacy_mat <- get(post_mat_get) 
+c(
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+)
+
+modelname <- "nmab_nobound"
+day_no <- 365
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+efficacy_mat <- get(post_mat_get) 
+c(
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+)
+
+modelname <- "oa_papi_nobound"
+day_no <- 180
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+efficacy_mat <- get(post_mat_get) 
+c(
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+)
+
+
+
+```
+
+
+
+
+
+# Save new estimates in rsvmabmat workflow
+
+```{r}
+
+save_model <- function(modelname) {
+    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+    efficacy_mat <- get(post_mat_get) 
+    efficacy_mat <- as.data.frame(efficacy_mat)
+    saveRDS(efficacy_mat, file = paste0("/Users/davidhodgson/Dropbox/Mac (3)/Documents/research/rsv/rsvmatmab/data/efficacies/", modelname, "_wane.rds") )
+}
+
+save_model("mat_nobound")
+save_model("mat_bounded")
+
+save_model("nmab_nobound")
+save_model("nmab_bounded")
+
+save_model("oa_papi_nobound")
+save_model("oa_papi_bounded")
 
 ```

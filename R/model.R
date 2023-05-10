@@ -16,6 +16,7 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
         n_vac = data_vac$vaccine$n,
         lower_bounds = lower_bounds
     )
+
     T <- max(data_vac$placebo$t)
     mod <- cmdstan_model(here::here("src", "eff_est.stan"))
 
@@ -43,6 +44,7 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
         t = data_list$t_pla, 
         inci = (data_list$n_pla) / (data_list$persons_pla)
     )
+
     df_data_vac <- data.frame(
         t = data_list$t_vac, 
         inci = (data_list$n_vac) / (data_list$persons_vac)
@@ -62,7 +64,11 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
         ggplot() + 
             stat_lineribbon(aes(t, waning_er2), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
             labs(x = "Time post-vaccination (days)", y = "Estimated efficacy")
-    (p1) / (p2 + p3)
+    p4 <- fit_stan %>% as_draws_df %>% spread_draws(waning_er2[t]) %>% 
+        ggplot() + 
+            stat_lineribbon(aes(t, waning_er3), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+            labs(x = "Time post-vaccination (days)", y = "Estimated efficacy")
+    (p1) / (p2 + p3 + p4)
     ggsave(here::here("outputs", name, "summary_fig.png"), height = 10, width = 10)
 
 }

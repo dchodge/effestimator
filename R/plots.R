@@ -1,5 +1,10 @@
 # COMPARE fits for the MATERNAL VACCINE
 
+plot_outputs
+
+
+
+
 plot_outputs <- function(data_eff, modelname) { 
     post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
     efficacy_mat <- get(post_mat_get) 
@@ -22,9 +27,9 @@ plot_outputs <- function(data_eff, modelname) {
             function(x) {
                 data.frame(
                     days = x,
-                    efficacy_exp = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_exp[.x] * exp( 1:x * - efficacy_mat$wane_b_exp[.x]) %>% mean ),
-                    efficacy_er2 = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_er2[.x] * (1 - pgamma(1:x, 2, efficacy_mat$wane_b_er2[.x])) %>% mean ),
-                    efficacy_er3 = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(1:x, 3, efficacy_mat$wane_b_er3[.x])) %>% mean )
+                    efficacy_exp = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_exp[.x] * exp( 1:x * - 1/efficacy_mat$wane_b_exp[.x]) %>% mean ),
+                    efficacy_er2 = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_er2[.x] * (1 - pgamma(1:x, 2, 1/efficacy_mat$wane_b_er2[.x])) %>% mean ),
+                    efficacy_er3 = 1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(1:x, 3, 1/efficacy_mat$wane_b_er3[.x])) %>% mean )
                 )
             }
         )
@@ -48,6 +53,7 @@ plot_outputs <- function(data_eff, modelname) {
                 theme(text = element_text(size = 18))
     p1 / p2
     ggsave(here::here("outputs", modelname, "fitscompare.png"),height = 10, width = 10)
+    efficacy_mat_comparison
 }
 
 
