@@ -1,4 +1,6 @@
-# Load libraries
+# Rmarkdown showing how to get the efficacy estimates for various RSV products
+
+## Load relevant packages
 
 ```{r}
 
@@ -9,7 +11,7 @@ library(tidybayes)
 library(patchwork)
 library(here)
 
-source("R/utils.R")
+source(here::here("R", "utils.R") )
 
 ```
 
@@ -17,9 +19,10 @@ source("R/utils.R")
 
 ```{r}
 
-source("R/get_times.R")
+# Loads information about Kaplan-Meier plots 
+source(here::here("R", "get_times.R") )
 
-# Finding the optimal value for the shape parameter of the exponential distribution
+# Finding the optimal value for the shape parameter of the exponential, Erlang-2, and Ergland-3 distributions
 expfunc <- function(x) (pexp(365, x) - 0.95) ^ 2
 erl2func <- function(x, k) ((1 - pgamma(365, 2, x)) - 0.05) ^ 2;
 erl3func <- function(x, k) ((1 - pgamma(365, 3, x)) - 0.05) ^ 2;
@@ -30,6 +33,8 @@ lower_bound_wane_erl2 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl2func, m
 lower_bound_wane_erl3 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl3func, method = "Brent")$par
 
 lower_bounds_95_loss <- 1 / c(lower_bound_wane_exp, lower_bound_wane_erl2, lower_bound_wane_erl3)
+
+# These are the values need if there are no boundary conditions (used in the rsvie package)
 lower_bounds_no_boundary <- c(365, 180, 120)
 
 data_nmab <- get_nmab_data()
@@ -51,10 +56,13 @@ data_oa_walsh <- get_oa_walsh_data()
 
 ```
 
+## Run the stan model
 
 ```{r}
 
-source("R/model.R")
+# Npte: If you run into errors with the build, delete the src/eff_est file (NOT the eff_est.stan) and try running `rebuild_cmdstan()`
+
+source(here::here("R", "model.R") )
 
 fitted_functions(data_nmab, "nmab_bounded", lower_bounds_95_loss)
 fitted_functions(data_matvac, "mat_bounded", lower_bounds_95_loss)
@@ -72,7 +80,7 @@ fitted_functions(data_oa_walsh, "oa_walsh_nobound", lower_bounds_no_boundary)
 
 ```{r}
 
-source("R/plots.R")
+source(here::here("R", "plots.R") )
 
 data_eff_mat <- data.frame(
         days = c(90, 120, 150, 180),
@@ -108,12 +116,6 @@ data_eff_lav <- data.frame(
 
 plot_outputs(data_eff_lav, "oa_papi_nobound")
 plot_outputs(data_eff_lav, "oa_papi_bounded")
-
-
-
-
-
-
 
 ```
 
@@ -153,9 +155,7 @@ c(
 
 
 
-
-
-# Save new estimates in rsvmabmat workflow
+# Save new estimates in rsvie workflow
 
 ```{r}
 

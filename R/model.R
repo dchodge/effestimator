@@ -18,7 +18,7 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
     )
 
     T <- max(data_vac$placebo$t)
-    mod <- cmdstan_model(here::here("src", "eff_est.stan"))
+    mod <- cmdstan_model(here::here("src", "eff_est.stan"), compile = TRUE)
 
     fit_stan <- mod$sample(
         data = data_list, 
