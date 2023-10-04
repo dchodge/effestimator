@@ -1,18 +1,22 @@
 # COMPARE fits for the MATERNAL VACCINE
-
-
-
-
-
-
-plot_outputs <- function(data_eff, modelname) { 
-    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+plot_outputs <- function(data_eff, modelname) {
+  
+    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
     efficacy_mat <- get(post_mat_get) 
-    fits_mat <- read_rds(here::here("outputs", modelname, "fits.rda") )
+    fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
+    fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
+    fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+    fits_mat_exp %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+      rename(waning_exp = waning) -> dat_exp
+    fits_mat_er2 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+      rename(waning_er2 = waning) -> dat_er2
+    fits_mat_er3 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+      rename(waning_er3 = waning) -> dat_er3
+    dat_exp %>% 
+      left_join(dat_er2, by = c("t", ".chain", ".iteration", ".draw")) %>% 
+      left_join(dat_er3, by = c("t", ".chain", ".iteration", ".draw")) -> dat
 
-
-
-    p1 <- fits_mat %>% as_draws_df %>% spread_draws(waning_exp[t], waning_er2[t], waning_er3[t]) %>%
+    p1 <- dat %>% 
             pivot_longer(c(waning_exp, waning_er2, waning_er3), names_to = "waning_dist", values_to = "eff") %>%
             ggplot() + 
                 xlim(0, 365) + 
@@ -55,11 +59,3 @@ plot_outputs <- function(data_eff, modelname) {
     ggsave(here::here("outputs", modelname, "fitscompare.png"),height = 10, width = 10)
     efficacy_mat_comparison
 }
-
-
-
-
-
-
-
-

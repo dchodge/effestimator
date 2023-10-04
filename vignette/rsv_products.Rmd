@@ -10,6 +10,7 @@ library(posterior)
 library(tidybayes)
 library(patchwork)
 library(here)
+library(gridExtra)
 
 source(here::here("R", "utils.R") )
 
@@ -124,7 +125,7 @@ plot_outputs(data_eff_lav, "oa_papi_bounded")
 # get point estimates for the efficacy
 modelname <- "mat_nobound"
 day_no <- 365
-post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
     1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
@@ -133,7 +134,7 @@ c(
 
 modelname <- "nmab_nobound"
 day_no <- 365
-post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
     1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
@@ -142,7 +143,7 @@ c(
 
 modelname <- "oa_papi_nobound"
 day_no <- 180
-post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
     1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
@@ -153,11 +154,29 @@ c(
 
 ```
 
-
-
 # Save new estimates in rsvie workflow
 
 ```{r}
+
+save_model <- function(modelname) {
+    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+    efficacy_mat <- get(post_mat_get) 
+    efficacy_mat <- as.data.frame(efficacy_mat)
+    saveRDS(efficacy_mat, file = here::here("outputs", modelname, "_wane.rds"))
+}
+
+save_model("mat_nobound")
+save_model("mat_bounded")
+
+save_model("nmab_nobound")
+save_model("nmab_bounded")
+
+save_model("oa_papi_nobound")
+save_model("oa_papi_bounded")
+
+```
+
+```{r Compare new/old code}
 
 save_model <- function(modelname) {
     post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
@@ -174,5 +193,104 @@ save_model("nmab_bounded")
 
 save_model("oa_papi_nobound")
 save_model("oa_papi_bounded")
+
+```
+
+```{r Old/new comparison}
+
+#name <- "nmab_bounded"
+#name <- "nmab_nobound"
+#name <- "mat_bounded"
+name <- "mat_nobound"
+
+fit_stan_exp <- readRDS(here::here("outputs", name, "fits_exp.rda"))
+fit_stan_er2 <- readRDS(here::here("outputs", name, "fits_er2.rda"))
+fit_stan_er3 <- readRDS(here::here("outputs", name, "fits_er3.rda"))
+fit_stan_old <- readRDS(here::here("outputs", name, "fits_old.rda"))
+
+ymax <- 0.00035
+fit_stan_exp %>% 
+  as_draws_df %>% 
+  spread_draws(incidence_pla[t], time_p[t]) %>%
+  ggplot() + 
+  stat_lineribbon(aes(time_p, incidence_pla), .width = 0.95, fill = "blue", alpha = 0.5) + 
+  coord_cartesian(ylim = c(0, ymax)) +
+  ggtitle("New") +
+  theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1
+
+fit_stan_old %>% 
+  as_draws_df %>% 
+  spread_draws(incidence_pla[t], time_p[t]) %>%
+  ggplot() + 
+  stat_lineribbon(aes(time_p, incidence_pla), .width = 0.95, fill = "blue", alpha = 0.5) + 
+  coord_cartesian(ylim = c(0, ymax)) +
+  ggtitle("Old") +
+  theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1_old
+
+g1 <- arrangeGrob(p1, p1_old, ncol = 2)
+ggsave(file="incidence_pla.pdf", g1)
+
+fit_stan_exp %>% 
+  as_draws_df %>% 
+  spread_draws(waning[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("New") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2
+
+fit_stan_old %>% 
+  as_draws_df %>% 
+  spread_draws(waning_exp[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning_exp), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Old") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2_old
+
+g2 <- arrangeGrob(p2, p2_old, ncol = 2)
+ggsave(file="exp.pdf", g2)
+
+fit_stan_er2 %>% 
+  as_draws_df %>% 
+  spread_draws(waning[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("New") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3
+
+fit_stan_old %>% 
+  as_draws_df %>% 
+  spread_draws(waning_er2[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning_er2), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Old") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3_old
+
+g3 <- arrangeGrob(p3, p3_old, ncol = 2)
+ggsave(file="er2.pdf", g3)
+
+fit_stan_er3 %>% 
+  as_draws_df %>% 
+  spread_draws(waning[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("New") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4
+
+fit_stan_old %>% 
+  as_draws_df %>% 
+  spread_draws(waning_er3[t]) %>% 
+  ggplot() + 
+  stat_lineribbon(aes(t, waning_er3), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
+  coord_cartesian(ylim = c(0, 1)) +
+  ggtitle("Old") +
+  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4_old
+
+g4 <- arrangeGrob(p4, p4_old, ncol = 2)
+ggsave(file="er3.pdf", g4)
 
 ```
