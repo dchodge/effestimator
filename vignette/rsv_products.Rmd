@@ -176,39 +176,24 @@ save_model("oa_papi_bounded")
 
 ```
 
-```{r Compare new/old code}
-
-save_model <- function(modelname) {
-    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.Rdata")))
-    efficacy_mat <- get(post_mat_get) 
-    efficacy_mat <- as.data.frame(efficacy_mat)
-    saveRDS(efficacy_mat, file = paste0("/Users/davidhodgson/Dropbox/Mac (3)/Documents/research/rsv/rsvmatmab/data/efficacies/", modelname, "_wane.rds") )
-}
-
-save_model("mat_nobound")
-save_model("mat_bounded")
-
-save_model("nmab_nobound")
-save_model("nmab_bounded")
-
-save_model("oa_papi_nobound")
-save_model("oa_papi_bounded")
-
-```
-
 ```{r Old/new comparison}
 
 #name <- "nmab_bounded"
-#name <- "nmab_nobound"
+name <- "nmab_nobound"
 #name <- "mat_bounded"
-name <- "mat_nobound"
+#name <- "mat_nobound"
 
 fit_stan_exp <- readRDS(here::here("outputs", name, "fits_exp.rda"))
 fit_stan_er2 <- readRDS(here::here("outputs", name, "fits_er2.rda"))
 fit_stan_er3 <- readRDS(here::here("outputs", name, "fits_er3.rda"))
 fit_stan_old <- readRDS(here::here("outputs", name, "fits_old.rda"))
 
-ymax <- 0.00035
+if (name == "nmab_nobound") {
+  ymax <- 0.0065
+} else if (name == "mat_nobound") {
+  ymax <- 0.00035
+}
+
 fit_stan_exp %>% 
   as_draws_df %>% 
   spread_draws(incidence_pla[t], time_p[t]) %>%
@@ -228,7 +213,7 @@ fit_stan_old %>%
   theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1_old
 
 g1 <- arrangeGrob(p1, p1_old, ncol = 2)
-ggsave(file="incidence_pla.pdf", g1)
+ggsave(file = paste0("incidence_pla_", name, ".pdf"), g1)
 
 fit_stan_exp %>% 
   as_draws_df %>% 
@@ -249,7 +234,7 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2_old
 
 g2 <- arrangeGrob(p2, p2_old, ncol = 2)
-ggsave(file="exp.pdf", g2)
+ggsave(file = paste0("exp_", name, ".pdf"), g2)
 
 fit_stan_er2 %>% 
   as_draws_df %>% 
@@ -270,7 +255,7 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3_old
 
 g3 <- arrangeGrob(p3, p3_old, ncol = 2)
-ggsave(file="er2.pdf", g3)
+ggsave(file = paste0("er2_", name, ".pdf"), g3)
 
 fit_stan_er3 %>% 
   as_draws_df %>% 
@@ -291,6 +276,6 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4_old
 
 g4 <- arrangeGrob(p4, p4_old, ncol = 2)
-ggsave(file="er3.pdf", g4)
+ggsave(file = paste0("er3_", name, ".pdf"), g4)
 
 ```
