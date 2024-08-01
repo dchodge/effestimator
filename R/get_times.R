@@ -1,5 +1,6 @@
+source(here::here("R", "utils.R"))
 
-source(here::here("R", "utils.R") )
+# Nirsevimab https://www.sciencedirect.com/science/article/pii/S2352464222003212?via%3Dihub
 get_nmab_data <- function() {
     data_pla <- read.csv(here::here("data", "Placebo_pooled.csv"), header = F)
     var <- c("t", "Proportion_Free")
@@ -52,7 +53,7 @@ get_nmab_data <- function() {
     list(placebo = agg_pla, vaccine = agg_vac)
 }
 
-# Maternal vaccination
+# Maternal vaccination https://www.nejm.org/doi/10.1056/NEJMoa2216480
 get_matvac_data <- function() {
     dt <- 30
     ts <- seq(15, 165, dt)
@@ -75,7 +76,7 @@ get_matvac_data <- function() {
 
 }
 
-
+# OA Pfizer https://www.nejm.org/doi/pdf/10.1056/NEJMoa2213836
 get_oa_walsh_data <- function() {
 
     ts <- c(0, 35, 72, 104, 147, 176)
@@ -98,7 +99,7 @@ get_oa_walsh_data <- function() {
 }
 
 
-# OA GSK
+# OA GSK https://www.nejm.org/doi/pdf/10.1056/NEJMoa2209604
 get_oa_papi_data <- function() {
 
     dt <- 30
