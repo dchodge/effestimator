@@ -213,7 +213,7 @@ fit_stan_old %>%
   theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1_old
 
 g1 <- arrangeGrob(p1, p1_old, ncol = 2)
-ggsave(file = paste0("incidence_pla_", name, ".pdf"), g1)
+ggsave(file = paste0("outputs/", name, "/comp_incidence_pla.pdf"), g1)
 
 fit_stan_exp %>% 
   as_draws_df %>% 
@@ -234,7 +234,7 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2_old
 
 g2 <- arrangeGrob(p2, p2_old, ncol = 2)
-ggsave(file = paste0("exp_", name, ".pdf"), g2)
+ggsave(file = paste0("outputs/", name, "/comp_exp.pdf"), g2)
 
 fit_stan_er2 %>% 
   as_draws_df %>% 
@@ -255,7 +255,7 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3_old
 
 g3 <- arrangeGrob(p3, p3_old, ncol = 2)
-ggsave(file = paste0("er2_", name, ".pdf"), g3)
+ggsave(file = paste0("outputs/", name, "/comp_er2.pdf"), g3)
 
 fit_stan_er3 %>% 
   as_draws_df %>% 
@@ -276,6 +276,6 @@ fit_stan_old %>%
   labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4_old
 
 g4 <- arrangeGrob(p4, p4_old, ncol = 2)
-ggsave(file = paste0("er3_", name, ".pdf"), g4)
+ggsave(file = paste0("outputs/", name, "/comp_er3.pdf"), g4)
 
 ```

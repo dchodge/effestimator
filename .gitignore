@@ -1,0 +1,8 @@
+*.Rproj
+.Rhistory
+.Rdata
+outputs
+.Rproj.user
+.Rbuildignore
+vignette/*.pdf
+scratch
