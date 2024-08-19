@@ -1,4 +1,4 @@
-# Rmarkdown showing how to get the efficacy estimates for various RSV products
+# Rmarkdown showing how to get the efficacy estimates for various RSV products
 
 ## Load relevant packages
 
@@ -12,7 +12,7 @@ library(patchwork)
 library(here)
 library(gridExtra)
 
-source(here::here("R", "utils.R") )
+source(here::here("R", "utils.R"))
 
 ```
 
@@ -21,9 +21,9 @@ source(here::here("R", "utils.R") )
 ```{r}
 
 # Loads information about Kaplan-Meier plots 
-source(here::here("R", "get_times.R") )
+source(here::here("R", "get_times.R"))
 
-# Finding the optimal value for the shape parameter of the exponential, Erlang-2, and Ergland-3 distributions
+# Finding the optimal value for the shape parameter of the exponential, Erlang-2, and Erlang-3 distributions
 expfunc <- function(x) (pexp(365, x) - 0.95) ^ 2
 erl2func <- function(x, k) ((1 - pgamma(365, 2, x)) - 0.05) ^ 2;
 erl3func <- function(x, k) ((1 - pgamma(365, 3, x)) - 0.05) ^ 2;
@@ -37,23 +37,25 @@ lower_bounds_95_loss <- 1 / c(lower_bound_wane_exp, lower_bound_wane_erl2, lower
 
 # These are the values need if there are no boundary conditions (used in the rsvie package)
 lower_bounds_no_boundary <- c(365, 180, 120)
+lower_bounds_no_boundary_ms <- c(1000000, 1000000, 1000000)
 
 data_nmab <- get_nmab_data()
 data_nmab$placebo <- data_nmab$placebo %>%
-    mutate(week = rep(1:22, each = 7)[1:150]) %>%
-    group_by(week) %>%
-    summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
-    mutate(tp = week)
+  mutate(week = rep(1:22, each = 7)[1:150]) %>%
+  group_by(week) %>%
+  summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
+  mutate(tp = week)
 
 data_nmab$vaccine <- data_nmab$vaccine %>%
-    mutate(week = rep(1:22, each = 7)[1:150]) %>%
-    group_by(week) %>%
-    summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
-    mutate(tp = week)
+  mutate(week = rep(1:22, each = 7)[1:150]) %>%
+  group_by(week) %>%
+  summarise(t = mean(t), person_time = mean(person_time), n = sum(n)) %>%
+  mutate(tp = week)
 data_matvac <- get_matvac_data()
 data_oa_papi <- get_oa_papi_data()
-data_oa_walsh <- get_oa_walsh_data()
-
+data_oa_GSK <- get_oa_GSK_data()
+data_oa_pfizer <- get_oa_pfizer_data()
+data_oa_moderna <- get_oa_moderna_data()
 
 ```
 
@@ -61,59 +63,58 @@ data_oa_walsh <- get_oa_walsh_data()
 
 ```{r}
 
-# Npte: If you run into errors with the build, delete the src/eff_est file (NOT the eff_est.stan) and try running `rebuild_cmdstan()`
+# Note: If you run into errors with the build, delete the src/eff_est file (NOT the eff_est.stan) and try running `rebuild_cmdstan()`
 
 source(here::here("R", "model.R") )
 
 fitted_functions(data_nmab, "nmab_bounded", lower_bounds_95_loss)
 fitted_functions(data_matvac, "mat_bounded", lower_bounds_95_loss)
 fitted_functions(data_oa_papi, "oa_papi_bounded", lower_bounds_95_loss)
-fitted_functions(data_oa_walsh, "oa_walsh_bounded", lower_bounds_95_loss)
 
 fitted_functions(data_nmab, "nmab_nobound", lower_bounds_no_boundary)
 fitted_functions(data_matvac, "mat_nobound", lower_bounds_no_boundary)
 fitted_functions(data_oa_papi, "oa_papi_nobound", lower_bounds_no_boundary)
-fitted_functions(data_oa_walsh, "oa_walsh_nobound", lower_bounds_no_boundary)
+fitted_functions(data_oa_GSK, "oa_GSK_nobound", lower_bounds_no_boundary_ms)
+fitted_functions(data_oa_pfizer, "oa_pfizer_nobound", lower_bounds_no_boundary_ms)
+fitted_functions(data_oa_moderna, "oa_moderna_nobound", lower_bounds_no_boundary_ms)
 
 ```
 
-## Create the comprison plots
+## Create the comparison plots
 
 ```{r}
 
-source(here::here("R", "plots.R") )
+source(here::here("R", "plots.R"))
 
 data_eff_mat <- data.frame(
-        days = c(90, 120, 150, 180),
-        mean = c(57.1, 56.8, 52.5, 51.3) / 100,
-        lb_95 = c(14.7, 31.2, 28.7, 29.4) / 100,
-        ub_95 = c(79.8, 73.5, 68.9, 66.8) / 100,
-        type = "Observed efficacy"
-    )
-
+  days = c(90, 120, 150, 180),
+  mean = c(57.1, 56.8, 52.5, 51.3) / 100,
+  lb_95 = c(14.7, 31.2, 28.7, 29.4) / 100,
+  ub_95 = c(79.8, 73.5, 68.9, 66.8) / 100,
+  type = "Observed efficacy"
+)
 
 plot_outputs(data_eff_mat, "mat_nobound")
 plot_outputs(data_eff_mat, "mat_bounded")
 
 data_eff_nmab <- data.frame(
-        days = c(150),
-        mean = c(79.5) / 100,
-        lb_95 = c(65.9) / 100,
-        ub_95 = c(87.1) / 100,
-        type = "Observed efficacy"
-    )
-
+  days = c(150),
+  mean = c(79.5) / 100,
+  lb_95 = c(65.9) / 100,
+  ub_95 = c(87.1) / 100,
+  type = "Observed efficacy"
+)
 
 plot_outputs(data_eff_nmab, "nmab_nobound")
 plot_outputs(data_eff_nmab, "nmab_bounded")
 
 data_eff_lav <- data.frame(
-        days = c(180),
-        mean = c(66.7) / 100,
-        lb_95 = c(28.8) / 100,
-        ub_95 = c(85.8) / 100,
-        type = "Observed efficacy"
-    )
+  days = c(180),
+  mean = c(66.7) / 100,
+  lb_95 = c(28.8) / 100,
+  ub_95 = c(85.8) / 100,
+  type = "Observed efficacy"
+)
 
 plot_outputs(data_eff_lav, "oa_papi_nobound")
 plot_outputs(data_eff_lav, "oa_papi_bounded")
@@ -128,8 +129,8 @@ day_no <- 365
 post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
 )
 
 modelname <- "nmab_nobound"
@@ -137,8 +138,8 @@ day_no <- 365
 post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
 )
 
 modelname <- "oa_papi_nobound"
@@ -146,8 +147,8 @@ day_no <- 180
 post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 c(
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
-    1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% mean,
+  1:4000 %>% map_dbl(~efficacy_mat$wane_a_er3[.x] * (1 - pgamma(day_no, 3, 1/efficacy_mat$wane_b_er3[.x])) ) %>% quantile(c(0.025, 0.975))
 )
 
 
@@ -159,10 +160,10 @@ c(
 ```{r}
 
 save_model <- function(modelname) {
-    post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
-    efficacy_mat <- get(post_mat_get) 
-    efficacy_mat <- as.data.frame(efficacy_mat)
-    saveRDS(efficacy_mat, file = here::here("outputs", modelname, "_wane.rds"))
+  post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+  efficacy_mat <- get(post_mat_get) 
+  efficacy_mat <- as.data.frame(efficacy_mat)
+  saveRDS(efficacy_mat, file = here::here("outputs", modelname, "_wane.rds"))
 }
 
 save_model("mat_nobound")
@@ -173,109 +174,5 @@ save_model("nmab_bounded")
 
 save_model("oa_papi_nobound")
 save_model("oa_papi_bounded")
-
-```
-
-```{r Old/new comparison}
-
-#name <- "nmab_bounded"
-name <- "nmab_nobound"
-#name <- "mat_bounded"
-#name <- "mat_nobound"
-
-fit_stan_exp <- readRDS(here::here("outputs", name, "fits_exp.rda"))
-fit_stan_er2 <- readRDS(here::here("outputs", name, "fits_er2.rda"))
-fit_stan_er3 <- readRDS(here::here("outputs", name, "fits_er3.rda"))
-fit_stan_old <- readRDS(here::here("outputs", name, "fits_old.rda"))
-
-if (name == "nmab_nobound") {
-  ymax <- 0.0065
-} else if (name == "mat_nobound") {
-  ymax <- 0.00035
-}
-
-fit_stan_exp %>% 
-  as_draws_df %>% 
-  spread_draws(incidence_pla[t], time_p[t]) %>%
-  ggplot() + 
-  stat_lineribbon(aes(time_p, incidence_pla), .width = 0.95, fill = "blue", alpha = 0.5) + 
-  coord_cartesian(ylim = c(0, ymax)) +
-  ggtitle("New") +
-  theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1
-
-fit_stan_old %>% 
-  as_draws_df %>% 
-  spread_draws(incidence_pla[t], time_p[t]) %>%
-  ggplot() + 
-  stat_lineribbon(aes(time_p, incidence_pla), .width = 0.95, fill = "blue", alpha = 0.5) + 
-  coord_cartesian(ylim = c(0, ymax)) +
-  ggtitle("Old") +
-  theme_bw() + labs(x = "Time post-vaccination (days)", y = "Incidence (placebo group)") -> p1_old
-
-g1 <- arrangeGrob(p1, p1_old, ncol = 2)
-ggsave(file = paste0("outputs/", name, "/comp_incidence_pla.pdf"), g1)
-
-fit_stan_exp %>% 
-  as_draws_df %>% 
-  spread_draws(waning[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("New") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2
-
-fit_stan_old %>% 
-  as_draws_df %>% 
-  spread_draws(waning_exp[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning_exp), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("Old") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p2_old
-
-g2 <- arrangeGrob(p2, p2_old, ncol = 2)
-ggsave(file = paste0("outputs/", name, "/comp_exp.pdf"), g2)
-
-fit_stan_er2 %>% 
-  as_draws_df %>% 
-  spread_draws(waning[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("New") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3
-
-fit_stan_old %>% 
-  as_draws_df %>% 
-  spread_draws(waning_er2[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning_er2), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("Old") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p3_old
-
-g3 <- arrangeGrob(p3, p3_old, ncol = 2)
-ggsave(file = paste0("outputs/", name, "/comp_er2.pdf"), g3)
-
-fit_stan_er3 %>% 
-  as_draws_df %>% 
-  spread_draws(waning[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("New") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4
-
-fit_stan_old %>% 
-  as_draws_df %>% 
-  spread_draws(waning_er3[t]) %>% 
-  ggplot() + 
-  stat_lineribbon(aes(t, waning_er3), .width = 0.95, fill = "red", alpha = 0.5) + theme_bw() +
-  coord_cartesian(ylim = c(0, 1)) +
-  ggtitle("Old") +
-  labs(x = "Time post-vaccination (days)", y = "Estimated efficacy") -> p4_old
-
-g4 <- arrangeGrob(p4, p4_old, ncol = 2)
-ggsave(file = paste0("outputs/", name, "/comp_er3.pdf"), g4)
 
 ```
