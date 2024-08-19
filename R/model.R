@@ -19,7 +19,6 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
 
     T <- max(data_vac$placebo$t)
     mod <- cmdstan_model(here::here("src", "eff_est.stan"), compile = TRUE)
-    mod_old <- cmdstan_model(here::here("src", "eff_est_old.stan"), compile = TRUE)
 
     fit_stan_exp <- mod$sample(
         data = c(model_id = 1, data_list, lower_bound = lower_bounds[1]), 
@@ -42,13 +41,6 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
       parallel_chains = 4,
       refresh = 500 # print update every 500 iters
     )
-    fit_stan_old <- mod_old$sample(
-      data = c(data_list, lower_bounds = list(lower_bounds)), 
-      seed = 123, 
-      chains = 4, 
-      parallel_chains = 4,
-      refresh = 500 # print update every 500 iters
-    )
 
     if (!dir.exists(here::here("outputs", name))) {
         # create the folder if it doesn't exist
@@ -58,7 +50,6 @@ fitted_functions <- function(data_vac, name, lower_bounds) {
     fit_stan_exp$save_object(file = here::here("outputs", name, "fits_exp.rda"))
     fit_stan_er2$save_object(file = here::here("outputs", name, "fits_er2.rda"))
     fit_stan_er3$save_object(file = here::here("outputs", name, "fits_er3.rda"))
-    fit_stan_old$save_object(file = here::here("outputs", name, "fits_old.rda"))
 
     fit_stan_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
       rename(wane_a_exp = wane_a, wane_b_exp = wane_b) -> posteriors_wane_exp
