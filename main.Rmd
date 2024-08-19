@@ -80,6 +80,42 @@ fitted_functions(data_oa_moderna, "oa_moderna_nobound", lower_bounds_no_boundary
 
 ```
 
+## Look at the posterior distributions
+
+```{r}
+
+modelname <- "oa_GSK_nobound"
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+efficacy_mat <- get(post_mat_get) 
+fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
+fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
+fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+fits_mat_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  tidyr::pivot_longer(cols = c(wane_a, wane_b)) |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_grid(fn ~ name, scales = "free")
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  dplyr::filter(.draw <= 100) |> 
+  ggplot(aes(x = t, y = waning, group = .draw)) + 
+  geom_line() + 
+  facet_grid(fn ~ ., scales = "free")
+
+```
+
 ## Create the comparison plots
 
 ```{r}
