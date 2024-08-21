@@ -84,12 +84,13 @@ fitted_functions(data_oa_moderna, "oa_moderna_nobound", lower_bounds_no_boundary
 
 ```{r}
 
-modelname <- "oa_GSK_nobound"
+modelname <- "oa_GSK_moderna_nobound"
 post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
 efficacy_mat <- get(post_mat_get) 
 fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
 fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
 fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+
 fits_mat_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
   dplyr::mutate(fn = "exp") -> dat_exp
 fits_mat_er2 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 

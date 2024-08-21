@@ -8,3 +8,4 @@ vignette/*.pdf
 scratch
 R/get_times.R
 src/eff_est
+figs

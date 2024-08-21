@@ -1,0 +1,371 @@
+# Rmarkdown showing how to get the efficacy estimates for various RSV products
+
+## Load relevant packages
+
+```{r}
+
+library(cmdstanr)
+library(tidyverse)
+library(posterior)
+library(tidybayes)
+library(patchwork)
+library(here)
+library(gridExtra)
+
+source(here::here("R", "utils.R"))
+
+```
+
+# Load data and find lower bounds for stan model
+
+```{r}
+
+# Loads information about Kaplan-Meier plots 
+source(here::here("R", "get_times.R"))
+
+# Finding the optimal value for the shape parameter of the exponential, Erlang-2, and Erlang-3 distributions
+expfunc <- function(x) (pexp(365, x) - 0.95) ^ 2
+erl2func <- function(x, k) ((1 - pgamma(365, 2, x)) - 0.05) ^ 2;
+erl3func <- function(x, k) ((1 - pgamma(365, 3, x)) - 0.05) ^ 2;
+
+# Find the lower bounds such that non of the distributions have more than 5% of the probability mass after 365 days
+lower_bound_wane_exp <- optim(c(0.01), lower = 0.0001, upper = 0.1, expfunc, method = "Brent")$par
+lower_bound_wane_erl2 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl2func, method = "Brent")$par
+lower_bound_wane_erl3 <- optim(c(0.01), lower = 0.0001, upper = 0.1, erl3func, method = "Brent")$par
+
+lower_bounds_95_loss <- 1 / c(lower_bound_wane_exp, lower_bound_wane_erl2, lower_bound_wane_erl3)
+
+# These are the values need if there are no boundary conditions (used in the rsvie package)
+lower_bounds_no_boundary <- c(365, 180, 120)
+lower_bounds_no_boundary_ms <- c(3650, 1800, 1200)
+
+data_oa_papi <- get_oa_papi_data()
+
+
+data_oa_GSK <- get_oa_GSK_data()
+data_oa_GSK[["name"]] <- "oa_GSK"
+data_oa_pfizer <- get_oa_pfizer_data()
+data_oa_pfizer[["name"]] <- "oa_pfizer"
+data_oa_moderna <- get_oa_moderna_data()
+data_oa_moderna[["name"]] <- "oa_moderna"
+
+# Plot point-wise efficacy 
+df_plots <- map_df(list(data_oa_GSK, data_oa_pfizer, data_oa_moderna),
+  function(eff_data) {
+    cat(str(eff_data))
+    data.frame(
+      name = eff_data$name,
+      time = eff_data$placebo$t,
+      size = eff_data$vaccine$person_time + eff_data$placebo$person_time,
+      approx_eff = 1 - (eff_data$vaccine$n  / eff_data$vaccine$person_time) / (eff_data$placebo$n  / eff_data$placebo$person_time )
+    )
+  }
+)
+
+df_plots %>% ggplot() + 
+  geom_point(aes(x = time, y = approx_eff, size = size)) + 
+  geom_line(aes(x = time, y = approx_eff)) + 
+  geom_smooth(method = "lm", aes(x = time, y = approx_eff)) + 
+  scale_x_continuous(breaks = seq(0, 730, 60)) + 
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) + 
+  theme_minimal() + 
+  labs(x = "Days since first dose", y = "Efficacy", title = "Point-wise efficacy for the GSK vaccine") + 
+  facet_wrap(vars(name))
+
+
+
+```
+
+
+# Run prior predictive checks 
+
+```{r}
+
+exp_wane <- function(wane_a, wane_b, t_vac) {
+    wane_a * exp(- (wane_b) * t_vac)
+}
+erlangk_wane <- function(wane_a, wane_b, t_vac, k) {
+    N = length(t_vac)
+    gamma_vec <- vector(mode = "numeric", length = N)
+    for (i in 1:N) {
+        gamma_vec[i] = pgamma(t_vac[i], k, wane_b)
+    }
+    gamma_vec
+}
+
+
+
+sample_unif <- runif(N, 0, lower_bounds_no_boundary_ms[1])
+
+data.frame(
+  post = sample_unif,
+  inv_post = 1 / sample_unif
+) %>% pivot_longer(everything()) %>%
+  ggplot() + geom_histogram(aes(x = value)) + facet_wrap(vars(name), scales = "free")
+
+
+
+N <- 1000
+wane_a <- runif(N, 1, 1)
+wane_b <- runif(N, 0, lower_bounds_no_boundary_ms[1])
+t_vac <- 1:(365 * 2)
+
+map_df(1:N,
+ ~data.frame(
+  s = .x,
+  t = t_vac,
+  prop = (1 - exp_wane(wane_a[.x], 1.0/wane_b[.x], t_vac))
+  )) %>% 
+  ggplot(aes(x = t_vac, y = value)) + 
+  stat_lineribbon(aes(x = t, y = prop)) 
+
+
+```
+
+
+## Run the stan model using a different parameterisation for wane_b
+
+```{r}
+
+# Note: If you run into errors with the build, delete the src/eff_est file (NOT the eff_est.stan) and try running `rebuild_cmdstan()`
+
+source(here::here("R", "model.R") )
+
+fitted_functions_none(data_oa_papi, "oa_papi_nobound_i")
+fitted_functions_none(data_oa_GSK, "oa_GSK_nobound_i")
+fitted_functions_none(data_oa_pfizer, "oa_pfizer_nobound_i")
+fitted_functions_none(data_oa_moderna, "oa_moderna_nobound_i")
+
+```
+
+# GSK, all models plot
+
+```{r}
+
+modelname <- "oa_GSK_nobound_i"
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+efficacy_mat <- get(post_mat_get) 
+fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
+fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
+fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  tidyr::pivot_longer(cols = c(wane_a, wane_b)) |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_grid(fn ~ name, scales = "free")
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  ggplot() + 
+  geom_point(data = df_plots %>% filter(name == "oa_GSK"), aes(x = time, y = approx_eff, size = size), color = "red") +
+  stat_lineribbon(aes(x = t, y = waning), .width = 0.95, fill = "gray", alpha = 0.5) + 
+  ylim(0, 1) + 
+  facet_grid(fn ~ ., scales = "free") + theme_bw()
+
+```
+
+# Pfizer, all models plot
+
+
+```{r}
+
+modelname <- "oa_pfizer_nobound_i"
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+efficacy_mat <- get(post_mat_get) 
+fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
+fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
+fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  tidyr::pivot_longer(cols = c(wane_a, wane_b)) |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_grid(fn ~ name, scales = "free")
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  ggplot() + 
+  stat_lineribbon(aes(x = t, y = waning), .width = 0.95, fill = "gray", alpha = 0.5) + 
+  geom_point(data = df_plots %>% filter(name == "oa_pfizer"), aes(x = time, y = approx_eff, size = size), color = "red") +
+  ylim(0, 1) + 
+  facet_grid(fn ~ ., scales = "free") + theme_bw()
+
+```
+
+# Moderna, all models plot
+
+```{r}
+
+modelname <- "oa_moderna_nobound_i"
+post_mat_get <- load(file = here::here("outputs", modelname, paste0(modelname, "_post_wane.RData")))
+efficacy_mat <- get(post_mat_get) 
+fits_mat_exp <- read_rds(here::here("outputs", modelname, "fits_exp.rda"))
+fits_mat_er2 <- read_rds(here::here("outputs", modelname, "fits_er2.rda"))
+fits_mat_er3 <- read_rds(here::here("outputs", modelname, "fits_er3.rda"))
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(wane_a, wane_b) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  tidyr::pivot_longer(cols = c(wane_a, wane_b)) |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_grid(fn ~ name, scales = "free")
+
+fits_mat_exp %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "exp") -> dat_exp
+fits_mat_er2 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er2") -> dat_er2
+fits_mat_er3 %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+  dplyr::mutate(fn = "er3") -> dat_er3
+
+dplyr::bind_rows(dat_exp, dat_er2, dat_er3) |> 
+  ggplot() + 
+  stat_lineribbon(aes(x = t, y = waning), .width = 0.95, fill = "gray", alpha = 0.5) + 
+  geom_point(data = df_plots %>% filter(name == "oa_moderna"), aes(x = time, y = approx_eff, size = size), color = "red") +
+  ylim(0, 1) + 
+  facet_grid(fn ~ ., scales = "free") + theme_bw()
+
+```
+
+# Calculate which functional form is the best fit using the CRPS ????
+## Before we did this with closest to quoted efficacy value so coudl go down that route instead?
+
+```{r}
+
+# oa_GSK_nobound_i
+df_plots$time <- round(df_plots$time)
+compare_fits <- map_df(
+  c("oa_GSK", "oa_pfizer", "oa_moderna"),
+  function(name_string) {
+  #  name_string <- "oa_GSK"
+    time_data <- df_plots %>% filter(name == name_string) %>% pull(time) 
+    crps <- map(c("exp", "er2", "er3"), 
+      function(fn_name) {
+     #   fn_name <- "er3"
+        time_data_1 <- intersect(dplyr::bind_rows(dat_exp, dat_er2, dat_er3) %>% filter(fn == fn_name) %>% pull(t) %>% unique, time_data)
+        data_model <- dplyr::bind_rows(dat_exp, dat_er2, dat_er3) %>% filter(fn == fn_name, t %in% time_data_1)
+
+        vec_model_data <- df_plots %>% filter(name == name_string, time %in% time_data_1) %>% pull(approx_eff)
+        weight <- df_plots %>% filter(name == name_string, time %in% time_data_1) %>% pull(size) %>% `/`(., sum(.))
+
+        mat_model_post <- data_model %>% pull(waning) %>% matrix(nrow = length(time_data_1), byrow = TRUE) %>% t
+
+        library(loo)
+        crps_score_raw <- crps(x = mat_model_post, x2 = mat_model_post, y = vec_model_data) 
+
+        crps_score <- 1 - (crps_score_raw$pointwise %>% exp)
+        crps_score %>% weighted.mean(w = weight, na.rm = TRUE)
+      }
+    ) %>% unlist
+
+    data.frame(
+      name = name_string,
+      function_type = c("exp", "er2", "er3"),
+      crps = crps
+    )
+  }
+)
+
+
+compare_fits 
+# GSK is eoxp
+# Pfizer is er2
+# Moderna is er3ß
+
+
+```
+
+#  Compare best fits of each product
+
+```{r}
+
+fits_gsk_mat_best <- read_rds(here::here("outputs", "oa_GSK_nobound_i", "fits_exp.rda"))
+fits_pfizer_mat_best <- read_rds(here::here("outputs", "oa_pfizer_nobound_i", "fits_er2.rda"))
+fits_moderna_mat_best <- read_rds(here::here("outputs", "oa_moderna_nobound_i", "fits_er3.rda"))
+
+
+data_plot <- bind_rows(
+  fits_gsk_mat_best %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+    dplyr::mutate(name = "GSK"),
+  fits_pfizer_mat_best %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+    dplyr::mutate(name = "Pfizer"),
+  fits_moderna_mat_best %>% as_draws_df %>% spread_draws(waning[t]) %>% 
+    dplyr::mutate(name = "Moderna")
+) %>% mutate(name = factor(name, levels = c("GSK", "Pfizer", "Moderna")))
+
+df_plots <- df_plots %>% mutate(name = recode(name, "oa_GSK" = "GSK", "oa_pfizer" = "Pfizer", "oa_moderna" = "Moderna")) 
+
+data_plot %>% ggplot() + 
+  stat_lineribbon(aes(x = t, y = waning, fill = name), .width = 0.95, alpha = 0.5) + 
+  scale_fill_manual(values = c("#5b84b1", "#fd766a", "#89c462")) + 
+  geom_point(data = df_plots, aes(x = time, y = approx_eff, size = size), color = "red") +
+  ylim(0, 1) + 
+  guides(size = "none") + 
+  labs(y = "Efficacy", x = "Time post vaccination") +
+  facet_grid(name ~ ., scales = "free") + theme_bw()
+ggsave(here::here("figs", "individual_best.png"))
+
+```
+
+# Comparison of efficacy between plots 
+
+```{r}
+
+data_plot_sum <- data_plot %>% group_by(t, name) %>% summarise(waning = mean(waning)) %>% as.data.frame %>%
+  mutate(t = as.numeric(t)) %>%
+  mutate(type = case_when(
+    ((name == "GSK") & (t < 735.0)) ~ "known",
+    (name == "GSK" & t >= 735.0) ~ "unknown",
+    (name == "Pfizer" & t < 651.5) ~ "known",
+    (name == "Pfizer" & t >= 651.5) ~ "unknown",
+    (name == "Moderna" & t < 307.5) ~ "known",
+    (name == "Moderna" & t > 307.5) ~ "unknown",
+    )
+  ) %>% mutate(label = if_else(t == min(t), as.character(name), NA_character_)) 
+
+require(ggrepel)
+data_plot_sum %>% 
+  ggplot() + 
+    geom_line(aes(x = t, y = waning, color = name, linetype = type), size = 2) + 
+    guides(linetype = "none", color = "none") + 
+    scale_color_manual(values = c("#5b84b1", "#fd766a", "#89c462")) + 
+    geom_label_repel(aes(x = t, y = waning, color = name, label = label), size = 8,
+                  nudge_x = 1,
+                  na.rm = TRUE) + 
+    ylim(0, 1) +
+    theme_bw() + labs(x = "Days post vaccination", y = "Fitted efficacy", color = "Product")
+ggsave(here::here("figs", "combined_best.png"))
+
+```
